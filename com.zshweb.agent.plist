@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Mac agent. Pair ONCE first (creds saved to ~/.zshweb-agent.json):
+      HUB_URL=http://your-hub-host:7654 node agent.js pair <配对码>
+  then install this:
+      cp com.zshweb.agent.plist ~/Library/LaunchAgents/
+      launchctl load ~/Library/LaunchAgents/com.zshweb.agent.plist
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.zshweb.agent</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/bin/node</string>
+		<string>/path/to/zsh-web/agent.js</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HUB_URL</key>
+		<string>http://your-hub-host:7654</string>
+		<key>MACHINE_NAME</key>
+		<string>MacBook</string>
+		<key>SESSION_DIR</key>
+		<string>/path/to/zsh-web/.agent-sessions</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>/path/to/zsh-web</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/path/to/zsh-web/zsh-web-agent.log</string>
+	<key>StandardErrorPath</key>
+	<string>/path/to/zsh-web/zsh-web-agent.log</string>
+</dict>
+</plist>

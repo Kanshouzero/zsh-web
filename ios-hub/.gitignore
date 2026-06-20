@@ -1,0 +1,13 @@
+# Real credentials — never commit. Build from Secrets.example.swift.
+Hub/Secrets.swift
+
+# macOS / Xcode
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+.swiftpm/
+Packages/

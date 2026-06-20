@@ -1,0 +1,25 @@
+{
+  "name": "zsh-web",
+  "version": "1.0.0",
+  "description": "Shared zsh session synced between a web terminal and local terminal clients over WebSocket.",
+  "type": "module",
+  "bin": {
+    "zsh-web-client": "./client.js"
+  },
+  "scripts": {
+    "hub": "node hub.js",
+    "agent": "node agent.js",
+    "usage": "node usage-server.js",
+    "start": "node server.js",
+    "client": "node client.js",
+    "postinstall": "node -e \"try{require('fs').chmodSync(require('path').join('node_modules/node-pty/prebuilds',process.platform+'-'+process.arch,'spawn-helper'),0o755)}catch(e){}\""
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "undici": "^6.27.0",
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  }
+}

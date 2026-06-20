@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.env
+.DS_Store
+.sessions/
+.agent-sessions/
+data/
+.zshweb-agent.json
+.claude/

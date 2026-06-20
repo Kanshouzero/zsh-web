@@ -1,0 +1,12 @@
+node_modules
+.git
+.sessions
+data
+*.log
+.DS_Store
+.env
+# agent/single-host files are not part of the Hub image
+agent.js
+server.js
+sessions.js
+client.js

@@ -1,0 +1,45 @@
+# zsh-web Hub + usage service, for the NAS (Container Manager).
+# Copy .env.example to .env and fill it in, then:  docker compose up -d --build
+services:
+  hub:
+    build: .
+    image: zsh-web-hub
+    container_name: zsh-web-hub
+    restart: unless-stopped
+    ports:
+      - "7654:7654"          # point your reverse proxy (with WebSocket) here
+    volumes:
+      - ./data:/app/data     # machine registry (machines.json) — persisted
+    environment:
+      HOST: 0.0.0.0
+      PORT: 7654
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TOKEN: ${AUTH_TOKEN}
+      OAUTH2_CLIENT_ID: ${OAUTH2_CLIENT_ID}
+      OAUTH2_CLIENT_SECRET: ${OAUTH2_CLIENT_SECRET}
+      OAUTH2_AUTH_URL: ${OAUTH2_AUTH_URL}
+      OAUTH2_TOKEN_URL: ${OAUTH2_TOKEN_URL}
+      OAUTH2_USERINFO_URL: ${OAUTH2_USERINFO_URL}
+      OAUTH2_REDIRECT_URI: ${OAUTH2_REDIRECT_URI}
+      OAUTH2_SCOPE: ${OAUTH2_SCOPE}
+      USAGE_API_URL: http://usage:7655   # reach the usage service over the compose network
+    depends_on:
+      - usage
+
+  usage:
+    build: .
+    image: zsh-web-hub
+    container_name: zsh-web-usage
+    restart: unless-stopped
+    command: ["node", "usage-server.js"]
+    volumes:
+      - ./data:/app/data     # Claude account credentials (accounts.json) — persisted
+    environment:
+      HOST: 0.0.0.0          # must bind all interfaces so the hub container can reach it
+      PORT: 7655
+      DATA_DIR: /app/data
+      # Outbound proxy for api.anthropic.com / platform.claude.com (CN networks).
+      CC_PROXY: ${CC_PROXY}
+      # Usage poll interval (ms). Default 5 min; cost ~1 Haiku token per poll.
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-300000}
+    # no published ports: only the hub talks to it, over the internal network

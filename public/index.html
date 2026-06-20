@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>zsh-web</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+<style>
+  :root {
+    --glass: rgba(255,255,255,.04);
+    --glass-hi: rgba(255,255,255,.07);
+    --stroke: rgba(255,255,255,.08);
+    --stroke-hi: rgba(255,255,255,.14);
+    --hilite: inset 0 1px 0 rgba(255,255,255,.07);
+    --accent: #3ddc84;
+    --txt: #e7e9ee;
+    --txt-dim: #8b909b;
+    --radius: 13px;
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; color: var(--txt);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "PingFang SC", sans-serif;
+    background: #090b10; }
+  body { position: relative; overflow: hidden; }
+  /* 氛围光 — 给毛玻璃提供可模糊的彩色内容 */
+  body::before { content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(42% 50% at 12% 8%,  rgba(72,116,255,.10), transparent 70%),
+      radial-gradient(44% 46% at 88% 16%, rgba(61,220,160,.06), transparent 70%),
+      radial-gradient(50% 52% at 74% 96%, rgba(150,92,255,.08), transparent 72%),
+      radial-gradient(40% 40% at 30% 100%, rgba(255,128,170,.04), transparent 70%); }
+  #app { position: relative; z-index: 1; display: flex; height: 100%; }
+
+  /* 毛玻璃侧栏 */
+  #side { width: 252px; flex: 0 0 252px; display: flex; flex-direction: column;
+    background: rgba(18,20,27,.55);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    border-right: 1px solid var(--stroke);
+    box-shadow: var(--hilite), 1px 0 24px rgba(0,0,0,.35); }
+  #side header { padding: 13px 16px; font-weight: 700; font-size: 12.5px; letter-spacing: .3px;
+    color: #f1f3f6; border-bottom: 1px solid rgba(255,255,255,.06);
+    display: flex; justify-content: space-between; align-items: center; }
+  #who { font-size: 11px; color: var(--txt-dim); font-weight: 400; }
+
+  /* 卡片式列表 */
+  #machines { flex: 0 0 auto; max-height: 26%; overflow: auto; padding: 7px 8px;
+    border-bottom: 1px solid rgba(255,255,255,.06); }
+  #list { flex: 1; overflow: auto; padding: 7px 8px; }
+  .item { padding: 10px 12px; margin: 5px 0; cursor: pointer; font-size: 13px;
+    border-radius: var(--radius); background: var(--glass);
+    border: 1px solid var(--stroke); box-shadow: var(--hilite);
+    transition: transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease; }
+  .item:hover { background: var(--glass-hi); border-color: var(--stroke-hi); transform: translateY(-1px); }
+  .item.active, .item.sel {
+    background: linear-gradient(rgba(61,220,132,.11), rgba(61,220,132,.04));
+    border-color: rgba(61,220,132,.24);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 3px 10px rgba(0,0,0,.22); }
+  .item .meta { color: var(--txt-dim); font-size: 11px; margin-top: 4px; }
+  .item .kill { float: right; color: #f0716e; opacity: .5; transition: opacity .15s; }
+  .item .kill:hover { opacity: 1; }
+
+  /* 玻璃按钮 */
+  #side .actions { padding: 12px; border-top: 1px solid rgba(255,255,255,.06); display: flex; gap: 9px; }
+  button { padding: 10px 12px; border: 0; border-radius: 12px; font: inherit; font-weight: 600;
+    cursor: pointer; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+  .new { flex: 1; color: #e9fff4;
+    background: linear-gradient(180deg, #33a266, #25814c);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 3px 10px rgba(0,0,0,.28); }
+  .new:hover { transform: translateY(-1px); background: linear-gradient(180deg, #39ad6f, #298c54);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 5px 14px rgba(0,0,0,.32); }
+  .logout { color: #ccd1d9; background: rgba(255,255,255,.06);
+    border: 1px solid var(--stroke); box-shadow: var(--hilite); }
+  .logout:hover { background: rgba(255,255,255,.11); }
+
+  /* 终端区 */
+  #main { flex: 1; position: relative; background: rgba(8,10,14,.55); }
+  #term { position: absolute; inset: 0; padding: 12px; box-sizing: border-box; }
+  #empty { position: absolute; inset: 0; display: grid; place-items: center; color: #565c66; font-size: 13px; }
+
+  /* 玻璃状态胶囊 */
+  #status { position: absolute; top: 12px; right: 16px; z-index: 5; font-size: 12px; font-weight: 600;
+    color: var(--txt-dim); padding: 6px 13px; border-radius: 20px;
+    background: rgba(28,30,38,.6);
+    -webkit-backdrop-filter: blur(14px) saturate(180%); backdrop-filter: blur(14px) saturate(180%);
+    border: 1px solid var(--stroke);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 3px 12px rgba(0,0,0,.35); }
+  #status.ok  { color: #74eaab; border-color: rgba(116,234,171,.26); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 3px 12px rgba(0,0,0,.35); }
+  #status.bad { color: #f29292; border-color: rgba(242,146,146,.26); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 3px 12px rgba(0,0,0,.35); }
+
+  /* 用量常驻区 */
+  #usage { border-top: 1px solid rgba(255,255,255,.06); flex: 0 0 auto; max-height: 44%; overflow: auto; }
+  #usage header { padding: 11px 16px; font-size: 12.5px; font-weight: 700; color: #f1f3f6;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 2;
+    background: rgba(18,20,27,.72);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(255,255,255,.06); }
+  #usage .refresh { cursor: pointer; color: var(--txt-dim); font-weight: 400; user-select: none; font-size: 14px; transition: color .15s, transform .3s; }
+  #usage .refresh:hover { color: var(--txt); transform: rotate(90deg); }
+  #usage .empty, #machines .empty, #list .empty { padding: 14px; color: #565c66; font-size: 11.5px; text-align: center; }
+
+  #machines .item .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; background: #555;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.08); vertical-align: middle; }
+  #machines .item.online .dot { background: var(--accent); box-shadow: 0 0 4px rgba(61,220,132,.4), 0 0 0 1px rgba(61,220,132,.22); }
+
+  .addMachine, .addAcct { cursor: pointer; color: var(--accent); font-weight: 700; user-select: none; font-size: 11.5px;
+    padding: 3px 8px; border-radius: 8px; background: rgba(61,220,132,.1); border: 1px solid rgba(61,220,132,.2); transition: background .15s; }
+  .addMachine:hover, .addAcct:hover { background: rgba(61,220,132,.2); }
+
+  .acct { padding: 11px 12px; margin: 6px 8px; border-radius: var(--radius);
+    background: var(--glass); border: 1px solid var(--stroke); box-shadow: var(--hilite); }
+  .acct .nm { font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+  .acct .del { cursor: pointer; color: #f0716e; opacity: .5; font-size: 11px; margin-left: 7px; transition: opacity .15s; }
+  .acct .del:hover { opacity: 1; }
+  .acct .ren { cursor: pointer; color: var(--txt-dim); opacity: .5; font-size: 11px; margin-left: 7px; transition: opacity .15s, color .15s; }
+  .acct .ren:hover { opacity: 1; color: var(--accent); }
+  .acct .warn { color: #f0716e; font-size: 10px; white-space: nowrap; font-weight: 400; }
+  .acct .plan { color: #74b4f0; font-size: 9px; border: 1px solid rgba(116,180,240,.3); background: rgba(116,180,240,.1);
+    border-radius: 5px; padding: 1px 5px; vertical-align: middle; }
+
+  .bar { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 10px; color: var(--txt-dim); }
+  .bar .lbl { flex: 0 0 18px; }
+  .bar .track { flex: 1; height: 7px; border-radius: 4px; background: rgba(0,0,0,.35); overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.04); }
+  .bar .fill { display: block; height: 100%; border-radius: 4px; transition: width .4s ease;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35); }
+  .bar .pct { flex: 0 0 32px; text-align: right; font-variant-numeric: tabular-nums; }
+  .bar .rst { flex: 0 0 auto; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; opacity: .65; }
+
+  /* 细滚动条 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.22); background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <header>机器 <span class="addMachine" id="addMachine" title="添加机器">+ 添加</span></header>
+    <div id="machines"><div class="empty">加载中…</div></div>
+    <header>会话 <span id="who"></span></header>
+    <div id="list"><div class="empty">← 先选一台机器</div></div>
+    <div id="usage">
+      <header>用量 <span><span class="addAcct" id="addAcct" title="添加账号">+ 账号</span> &nbsp; <span class="refresh" id="usageRefresh" title="刷新">⟳</span></span></header>
+      <div id="usageList"><div class="empty">加载中…</div></div>
+    </div>
+    <div class="actions">
+      <button class="new" id="new">+ 新建</button>
+      <button class="logout" id="logout">退出</button>
+    </div>
+  </div>
+  <div id="main">
+    <div id="status">空闲</div>
+    <div id="empty">← 选择或新建一个会话</div>
+    <div id="term" style="display:none"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const status = $('#status');
+const setStatus = (t, c) => { status.textContent = t; status.className = c || ''; };
+
+let term, fit, ws, current = null, currentMachine = null, reconnectTimer;
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (res.status === 401) { location.href = '/login.html'; throw new Error('unauth'); }
+  return res;
+}
+
+async function loadMe() {
+  const { user } = await (await api('/api/me')).json();
+  $('#who').textContent = user.via === 'none' ? '(免鉴权)' : user.name;
+}
+
+async function loadMachines() {
+  const { agents } = await (await api('/api/agents')).json();
+  const box = $('#machines');
+  box.innerHTML = '';
+  if (!agents.length) { box.innerHTML = '<div class="empty">还没有机器,点上方「+ 添加」</div>'; return; }
+  for (const m of agents) {
+    const el = document.createElement('div');
+    el.className = 'item' + (m.online ? ' online' : '') + (m.id === currentMachine ? ' sel' : '');
+    el.innerHTML = `<span class="kill" data-id="${m.id}" title="吊销">✕</span>` +
+      `<span class="dot"></span>${m.name}` +
+      `<div class="meta">${m.online ? m.sessions + ' 个会话' : '离线'}</div>`;
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('kill')) return;
+      selectMachine(m.id);
+    });
+    el.querySelector('.kill').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`吊销机器「${m.name}」?该机将被踢下线。`)) return;
+      await api('/api/agents/' + m.id, { method: 'DELETE' });
+      if (currentMachine === m.id) { closeTerm(); currentMachine = null; $('#list').innerHTML = '<div class="empty">← 先选一台机器</div>'; }
+      loadMachines();
+    });
+    box.appendChild(el);
+  }
+}
+
+function selectMachine(id) {
+  currentMachine = id;
+  loadMachines();
+  loadSessions();
+}
+
+async function loadSessions() {
+  const list = $('#list');
+  if (!currentMachine) { list.innerHTML = '<div class="empty">← 先选一台机器</div>'; return; }
+  const res = await api('/api/agents/' + currentMachine + '/sessions');
+  if (!res.ok) { list.innerHTML = '<div class="empty">机器离线</div>'; return; }
+  const { sessions } = await res.json();
+  list.innerHTML = '';
+  if (!sessions.length) { list.innerHTML = '<div class="empty">无会话,点「+ 新建」</div>'; return; }
+  for (const s of sessions) {
+    const el = document.createElement('div');
+    el.className = 'item' + (s.id === current ? ' active' : '');
+    el.innerHTML = `<span class="kill" data-id="${s.id}">✕</span>` +
+      `${s.name}<div class="meta">${s.clients} 个连接 · ${s.cols}×${s.rows}${s.exited ? ' · 已退出' : ''}</div>`;
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('kill')) return;
+      openSession(s.id);
+    });
+    el.querySelector('.kill').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await api('/api/agents/' + currentMachine + '/sessions/' + s.id, { method: 'DELETE' });
+      if (current === s.id) closeTerm();
+      loadSessions();
+    });
+    list.appendChild(el);
+  }
+}
+
+function ensureTerm() {
+  if (term) return;
+  term = new Terminal({
+    cursorBlink: true, fontSize: 14, scrollback: 10000,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    theme: { background: '#1e1e1e' },
+  });
+  fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(new WebLinksAddon.WebLinksAddon());
+  term.open($('#term'));
+  term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(d)); });
+  window.addEventListener('resize', () => { if (current) { fit.fit(); sendResize(); } });
+}
+
+function sendResize() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+  }
+}
+
+function closeTerm() {
+  clearTimeout(reconnectTimer);
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  current = null;
+  $('#term').style.display = 'none';
+  $('#empty').style.display = 'grid';
+  setStatus('空闲', '');
+}
+
+function openSession(id) {
+  if (current === id && ws && ws.readyState === WebSocket.OPEN) return;
+  closeTerm();
+  current = id;
+  ensureTerm();
+  $('#empty').style.display = 'none';
+  $('#term').style.display = 'block';
+  term.reset(); // full reset, not clear() — clear() keeps the last line and leaks it into the next session
+  fit.fit();
+  loadSessions();
+  connect();
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?agent=${currentMachine}&session=${current}`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { setStatus('● 已同步', 'ok'); sendResize(); term.focus(); };
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === 'string') {
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.type === 'exit') setStatus(`shell 已退出 (${m.code})`, 'bad');
+        if (m.type === 'error') setStatus(m.message, 'bad');
+        return;
+      } catch { term.write(ev.data); return; }
+    }
+    term.write(new Uint8Array(ev.data));
+  };
+  ws.onclose = () => {
+    if (current) { setStatus('重连中…', 'bad'); reconnectTimer = setTimeout(connect, 1000); }
+  };
+  ws.onerror = () => ws.close();
+}
+
+$('#new').addEventListener('click', async () => {
+  if (!currentMachine) { alert('请先选择一台机器'); return; }
+  const name = prompt('会话名称(可选):') || undefined;
+  const res = await api('/api/agents/' + currentMachine + '/sessions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) { alert('新建失败:机器可能离线'); return; }
+  const { session } = await res.json();
+  await loadSessions();
+  openSession(session.id);
+});
+
+$('#addMachine').addEventListener('click', async () => {
+  const res = await api('/api/pair/new', { method: 'POST' });
+  if (!res.ok) { alert('生成配对码失败'); return; }
+  const { code, expiresInSec } = await res.json();
+  const hubUrl = location.origin;
+  prompt(
+    `在新电脑上运行(${Math.round(expiresInSec / 60)} 分钟内有效):\n\n` +
+    `HUB_URL=${hubUrl} node agent.js pair ${code}\n\n配对码:`,
+    code,
+  );
+});
+
+$('#logout').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/login.html';
+});
+
+// --- 用量 -------------------------------------------------------------------
+function barColor(p) { return p >= 85 ? '#f0716e' : p >= 60 ? '#e9a23b' : '#3ddc84'; }
+function fmtReset(iso) {
+  if (!iso) return '';
+  const ms = new Date(iso) - Date.now();
+  if (ms <= 0) return '即将重置';
+  const totalM = Math.floor(ms / 60000);
+  const d = Math.floor(totalM / 1440), h = Math.floor((totalM % 1440) / 60), m = totalM % 60;
+  if (d) return h ? `${d}d${h}h` : `${d}d`;
+  return h ? `${h}h${m}m` : `${m}m`;
+}
+function bar(label, w) {
+  if (!w || typeof w.usedPercent !== 'number') {
+    return `<div class="bar"><span class="lbl">${label}</span><span class="track"></span><span class="pct">–</span><span class="rst"></span></div>`;
+  }
+  const p = Math.max(0, Math.min(100, w.usedPercent));
+  const rst = w.resetsAt ? fmtReset(w.resetsAt) : '';
+  return `<div class="bar"><span class="lbl">${label}</span>` +
+    `<span class="track"><span class="fill" style="width:${p}%;background:${barColor(p)}"></span></span>` +
+    `<span class="pct">${p.toFixed(0)}%</span>` +
+    `<span class="rst" title="窗口重置倒计时">${rst}</span></div>`;
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function loadUsage(force) {
+  const list = $('#usageList');
+  let data;
+  try {
+    const res = force
+      ? await api('/api/usage/refresh', { method: 'POST' })
+      : await api('/api/usage');
+    if (!res.ok) { list.innerHTML = `<div class="empty">用量不可用 (${res.status})</div>`; return; }
+    data = await res.json();
+  } catch { list.innerHTML = '<div class="empty">用量加载失败</div>'; return; }
+  if (!data.accounts || !data.accounts.length) { list.innerHTML = '<div class="empty">无账号,点上方「+ 账号」添加</div>'; return; }
+  list.innerHTML = data.accounts.map((a) => {
+    const u = a.usage || {};
+    const five = u.fiveHour, seven = u.sevenDay, sonnet = u.sevenDaySonnet;
+    const err = a.lastError;
+    const plan = a.subscriptionType ? `<span class="plan">${esc(a.subscriptionType)}</span>` : '';
+    const tag = err
+      ? `<span class="warn" title="${esc(err)}">⚠ ${esc(String(err).slice(0, 16))}</span>`
+      : '';
+    return `<div class="acct"><div class="nm">` +
+      `<span>${esc(a.name)} ${plan}</span>` +
+      `<span>${tag}` +
+      `<span class="ren" data-id="${a.id}" data-name="${esc(a.name)}" title="重命名">✎</span>` +
+      `<span class="del" data-id="${a.id}" title="删除账号">✕</span></span></div>` +
+      bar('5h', five) + bar('7d', seven) + (sonnet ? bar('7dS', sonnet) : '') + `</div>`;
+  }).join('');
+}
+$('#usageRefresh').addEventListener('click', () => {
+  const b = $('#usageRefresh');
+  if (b.dataset.busy) return;
+  b.dataset.busy = '1'; b.style.opacity = .4;
+  loadUsage(true).finally(() => { delete b.dataset.busy; b.style.opacity = 1; });
+});
+
+// 重命名 / 删除账号(事件委托)
+$('#usageList').addEventListener('click', async (e) => {
+  const ren = e.target.closest('.ren');
+  if (ren) {
+    const cur = ren.dataset.name || '';
+    const name = prompt('账号新名字:', cur);
+    if (name == null) return;
+    const v = name.trim();
+    if (!v || v === cur) return;
+    const res = await api('/api/usage/accounts/' + ren.dataset.id, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: v }),
+    });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); return alert('重命名失败:' + (j.error || res.status)); }
+    loadUsage();
+    return;
+  }
+  const del = e.target.closest('.del');
+  if (!del) return;
+  if (!confirm('删除这个 Claude 账号?(会移除其凭证)')) return;
+  await api('/api/usage/accounts/' + del.dataset.id, { method: 'DELETE' });
+  loadUsage();
+});
+
+// 添加账号:OAuth 浏览器授权,或粘贴令牌/credentials.json 导入
+async function addAccount() {
+  const useOAuth = confirm('点「确定」用浏览器授权登录(OAuth);\n点「取消」改为粘贴令牌 / credentials.json 导入(更稳)。');
+  try {
+    if (useOAuth) {
+      const { pendingId, authorizeUrl } = await (await api('/api/usage/accounts/login/start', { method: 'POST' })).json();
+      window.open(authorizeUrl, '_blank', 'noopener');
+      const code = prompt('已打开授权页。授权后把页面显示的 code(形如 CODE#STATE)粘贴回来:');
+      if (!code) return;
+      const name = prompt('给这个账号起个名(可选):') || undefined;
+      const res = await api('/api/usage/accounts/login/complete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingId, code, name }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return alert('添加失败:' + (j.error || res.status));
+    } else {
+      const raw = prompt('粘贴 setup-token(sk-ant-oat...)或 credentials.json 内容:');
+      if (!raw) return;
+      const name = prompt('给这个账号起个名(可选):') || undefined;
+      const res = await api('/api/usage/accounts/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw, name }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return alert('添加失败:' + (j.error || res.status));
+    }
+    loadUsage(true);
+  } catch { alert('添加账号出错'); }
+}
+$('#addAcct').addEventListener('click', addAccount);
+
+(async function init() {
+  await loadMe();
+  await loadMachines();
+  loadUsage();
+  setInterval(() => { if (document.visibilityState === 'visible') { loadMachines(); loadSessions(); } }, 5000);
+  setInterval(() => { if (document.visibilityState === 'visible') loadUsage(); }, 60000);
+})();
+</script>
+</body>
+</html>
