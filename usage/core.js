@@ -127,6 +127,17 @@ export async function refreshAccountUsage(id, { force = false } = {}) {
     return { ok: hasUsage, reason: '429' };
   }
 
+  if (res.status === 529 || res.status >= 500) {
+    // 529 = Anthropic overloaded; other 5xx = transient server hiccups. Neither is the
+    // account's fault, so back off a few minutes and KEEP the last good usage on screen
+    // instead of flashing a hard error like "⚠ HTTP 529".
+    updateAccount(id, {
+      backoffUntil: Date.now() + 5 * 60 * 1000,
+      lastError: account.usage ? null : `服务暂时不可用(HTTP ${res.status})，稍后重试`,
+    });
+    return { ok: false, reason: `HTTP ${res.status}` };
+  }
+
   // Even on a non-2xx (e.g. usage exhausted → 403), the rate-limit headers are
   // usually still present, so read them before treating it as an error.
   const usage = readUsageHeaders(res.headers);
