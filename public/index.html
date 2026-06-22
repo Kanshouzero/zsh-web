@@ -332,14 +332,6 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?agent=${currentMachine}&session=${current}`);
   ws.binaryType = 'arraybuffer';
-  let vpSync; // debounce a viewport re-sync after the replay/output burst settles
-  // Switching sessions (reset + replay) leaves xterm's scroll viewport stale, so the
-  // wheel does nothing until a keystroke triggers xterm's own scrollToBottom. Do that
-  // ourselves once the data burst settles, which re-syncs the scroll area.
-  const syncViewport = () => {
-    clearTimeout(vpSync);
-    vpSync = setTimeout(() => { try { fit.fit(); term.scrollToBottom(); } catch (e) {} }, 80);
-  };
   ws.onopen = () => { setStatus('● 已同步', 'ok'); fit.fit(); sendResize(); term.focus(); };
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
@@ -348,10 +340,9 @@ function connect() {
         if (m.type === 'exit') setStatus(`shell 已退出 (${m.code})`, 'bad');
         if (m.type === 'error') setStatus(m.message, 'bad');
         return;
-      } catch { term.write(ev.data); syncViewport(); return; }
+      } catch { term.write(ev.data); return; }
     }
     term.write(new Uint8Array(ev.data));
-    syncViewport();
   };
   ws.onclose = () => {
     if (current) { setStatus('重连中…', 'bad'); reconnectTimer = setTimeout(connect, 1000); }
