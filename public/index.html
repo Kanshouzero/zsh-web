@@ -285,7 +285,10 @@ function openSession(id) {
   $('#empty').style.display = 'none';
   $('#term').style.display = 'block';
   term.reset(); // full reset, not clear() — clear() keeps the last line and leaks it into the next session
-  fit.fit();
+  // The pane just switched to display:block, so its size isn't settled yet. Fit on
+  // the next frame; fitting now reads a wrong size → rows/cols off (bottom content
+  // clipped) and the viewport mis-sized (scroll/click dead until you type).
+  requestAnimationFrame(() => { fit.fit(); term.focus(); });
   loadSessions();
   connect();
 }
@@ -294,7 +297,7 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?agent=${currentMachine}&session=${current}`);
   ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { setStatus('● 已同步', 'ok'); sendResize(); term.focus(); };
+  ws.onopen = () => { setStatus('● 已同步', 'ok'); fit.fit(); sendResize(); term.focus(); };
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
       try {
