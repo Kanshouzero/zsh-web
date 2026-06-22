@@ -259,7 +259,18 @@ function ensureTerm() {
     term.loadAddon(webgl);
   } catch (e) { /* no WebGL → stay on the DOM renderer */ }
   term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(d)); });
-  window.addEventListener('resize', () => { if (current) { fit.fit(); sendResize(); } });
+  // Re-fit whenever the terminal pane actually changes size (sidebar toggle, split,
+  // rotate, window resize) — more reliable than the window 'resize' event.
+  let pendingFit = false;
+  const ro = new ResizeObserver(() => {
+    if (pendingFit) return;
+    pendingFit = true;
+    requestAnimationFrame(() => {
+      pendingFit = false;
+      if (current && $('#term').clientHeight > 0) { fit.fit(); sendResize(); }
+    });
+  });
+  ro.observe($('#term'));
 }
 
 function sendResize() {
@@ -281,9 +292,12 @@ function openSession(id) {
   if (current === id && ws && ws.readyState === WebSocket.OPEN) return;
   closeTerm();
   current = id;
-  ensureTerm();
+  // Show the pane BEFORE creating the terminal: term.open()/WebGL must initialize on
+  // a visible, sized container, or the viewport mis-measures (scroll dead, bottom
+  // clipped) until something forces a reflow.
   $('#empty').style.display = 'none';
   $('#term').style.display = 'block';
+  ensureTerm();
   term.reset(); // full reset, not clear() — clear() keeps the last line and leaks it into the next session
   // The pane just switched to display:block, so its size isn't settled yet. Fit on
   // the next frame; fitting now reads a wrong size → rows/cols off (bottom content
