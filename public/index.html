@@ -275,25 +275,15 @@ function ensureTerm() {
   });
   ro.observe($('#term'));
 
-  // Drive scrolling ourselves, in the CAPTURE phase so we beat xterm's own viewport
-  // wheel handler (it stopPropagation()s, so a bubble-phase listener never fires until
-  // a keystroke "wakes" it — that was the "type a space first to scroll" bug).
-  // term.scrollLines() always works regardless of the viewport's internal state.
+  // Full-screen TUIs (claude / vim / less) use the alternate buffer, which has no
+  // scrollback — so there, translate the wheel into arrow keys for the program.
+  // In the normal buffer let xterm's own viewport handle the wheel (works fine).
   $('#term').addEventListener('wheel', (e) => {
-    if (!term) return;
-    const dir = e.deltaY > 0 ? 1 : -1;
-    if (term.buffer.active.type === 'alternate') {
-      // Full-screen TUI (claude / vim / less): there's no scrollback to scroll, so
-      // send the program arrow keys — the standard terminal behavior for the alt buffer.
-      const seq = dir > 0 ? '\x1b[B' : '\x1b[A'; // down / up arrow
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(seq.repeat(3)));
-    } else {
-      const step = e.deltaMode === 2 ? term.rows : 3; // page vs line/pixel → a few lines
-      term.scrollLines(dir * step);
-    }
+    if (!term || term.buffer.active.type !== 'alternate') return;
+    const seq = e.deltaY > 0 ? '\x1b[B' : '\x1b[A'; // down / up arrow
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(seq.repeat(3)));
     e.preventDefault();
-    e.stopPropagation();
-  }, { passive: false, capture: true });
+  }, { passive: false });
 }
 
 function sendResize() {
