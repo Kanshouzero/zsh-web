@@ -275,9 +275,10 @@ function ensureTerm() {
   });
   ro.observe($('#term'));
 
-  // Drive scrolling ourselves. xterm's own viewport wheel handling goes dead after a
-  // session switch and even during output (only a keystroke revives it). Calling
-  // term.scrollLines() directly bypasses that broken path and always scrolls.
+  // Drive scrolling ourselves, in the CAPTURE phase so we beat xterm's own viewport
+  // wheel handler (it stopPropagation()s, so a bubble-phase listener never fires until
+  // a keystroke "wakes" it — that was the "type a space first to scroll" bug).
+  // term.scrollLines() always works regardless of the viewport's internal state.
   $('#term').addEventListener('wheel', (e) => {
     if (!term) return;
     const dir = e.deltaY > 0 ? 1 : -1;
@@ -291,7 +292,8 @@ function ensureTerm() {
       term.scrollLines(dir * step);
     }
     e.preventDefault();
-  }, { passive: false });
+    e.stopPropagation();
+  }, { passive: false, capture: true });
 }
 
 function sendResize() {
