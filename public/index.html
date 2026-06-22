@@ -161,7 +161,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-canvas@0.7.0/lib/addon-canvas.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const status = $('#status');
@@ -250,14 +250,13 @@ function ensureTerm() {
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon.WebLinksAddon());
   term.open($('#term'));
-  // WebGL renderer: offload drawing to the GPU so a large scrollback doesn't make
-  // typing laggy (the default DOM renderer slows down badly as the buffer grows).
-  // Fall back to the DOM renderer if the GPU context is lost or WebGL is unavailable.
+  // Canvas renderer: much faster than the DOM renderer for a large scrollback (so
+  // typing stays smooth), and — unlike the WebGL renderer — it keeps the scroll
+  // viewport in sync after a session switch. WebGL left scrolling dead until a
+  // keystroke forced a repaint. Falls back to the DOM renderer if it can't load.
   try {
-    const webgl = new WebglAddon.WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch (e) { /* no WebGL → stay on the DOM renderer */ }
+    term.loadAddon(new CanvasAddon.CanvasAddon());
+  } catch (e) { /* no Canvas addon → stay on the DOM renderer */ }
   term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(d)); });
   // Re-fit whenever the terminal pane actually changes size (sidebar toggle, split,
   // rotate, window resize) — more reliable than the window 'resize' event.
