@@ -247,7 +247,10 @@ function ensureTerm() {
   if (term) return;
   term = new Terminal({
     cursorBlink: true, fontSize: 14, scrollback: 10000,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    // Include Windows monospace fonts (Consolas / Cascadia) — the Apple ones don't
+    // exist there, so xterm fell back to a font with wrong glyph metrics → garbled
+    // display and sluggish render. Consolas ships on every Windows.
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Cascadia Mono', 'Courier New', monospace",
     theme: { background: '#1e1e1e' },
   });
   fit = new FitAddon.FitAddon();
