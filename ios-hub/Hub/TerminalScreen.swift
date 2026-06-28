@@ -36,10 +36,17 @@ struct TerminalContainer: UIViewRepresentable {
         coordinator.disconnect()
     }
 
-    final class Coordinator: NSObject, TerminalViewDelegate {
+    final class Coordinator: NSObject, TerminalViewDelegate, UIGestureRecognizerDelegate {
         private let parent: TerminalContainer
         private let socket = TerminalSocket()
         private weak var terminal: TerminalView?
+
+        // Drag-to-scroll for full-screen TUIs (claude / vim / less). They run in the
+        // alternate buffer, which has no scrollback — SwiftTerm's own pan finds nothing
+        // to scroll, so you're stuck on the latest screen. Mirror the web client: in the
+        // alternate buffer, translate a vertical drag into arrow keys for the program.
+        private var panResidualY: CGFloat = 0
+        private var panLastY: CGFloat = 0
 
         init(_ parent: TerminalContainer) { self.parent = parent }
 
@@ -84,10 +91,40 @@ struct TerminalContainer: UIViewRepresentable {
             }
             tv.inputAccessoryView = bar
 
+            // Drag-to-scroll inside alternate-buffer TUIs (see panResidualY note above).
+            // Runs alongside SwiftTerm's own pan; in the normal buffer it bails out and
+            // leaves the stock scrollback panning untouched.
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(altBufferPan(_:)))
+            pan.delegate = self
+            tv.addGestureRecognizer(pan)
+
             DispatchQueue.main.async { _ = tv.becomeFirstResponder() }
         }
 
         func disconnect() { socket.disconnect() }
+
+        @objc func altBufferPan(_ g: UIPanGestureRecognizer) {
+            guard let tv = terminal, tv.getTerminal().isCurrentBufferAlternate else { return }
+            switch g.state {
+            case .began:
+                panLastY = 0
+                panResidualY = 0
+            case .changed:
+                let y = g.translation(in: tv).y
+                panResidualY += y - panLastY
+                panLastY = y
+                let step: CGFloat = 16   // points of drag per emitted arrow key
+                // Drag down (residual > 0) reveals older content → up arrow, and vice versa.
+                let up: [UInt8] = [0x1b, 0x5b, 0x41], down: [UInt8] = [0x1b, 0x5b, 0x42]
+                while panResidualY >= step { socket.send(up); panResidualY -= step }
+                while panResidualY <= -step { socket.send(down); panResidualY += step }
+            default:
+                panResidualY = 0
+            }
+        }
+
+        // Coexist with SwiftTerm's built-in scroll/selection pan rather than racing it.
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
         private func setStatus(_ s: TerminalStatus) {
             DispatchQueue.main.async { self.parent.status = s }
