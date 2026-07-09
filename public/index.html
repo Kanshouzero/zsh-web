@@ -287,6 +287,45 @@ $('#keybar').addEventListener('pointerdown', (e) => {
 
 let term, fit, ws, current = null, currentMachine = null, reconnectTimer;
 
+function isCopyShortcut(e) {
+  return e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === 'KeyC' || e.key.toLowerCase() === 'c');
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } finally { ta.remove(); }
+}
+
+async function copyTermSelection() {
+  if (!term || !term.hasSelection()) return false;
+  const text = term.getSelection();
+  try { await navigator.clipboard.writeText(text); }
+  catch { fallbackCopy(text); }
+  term.focus();
+  return true;
+}
+
+function handleTerminalCopyShortcut(e) {
+  if (!isCopyShortcut(e) || !term || !current) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+  copyTermSelection();
+  return true;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!term || !current || !$("#term").contains(document.activeElement)) return;
+  handleTerminalCopyShortcut(e);
+}, true);
+
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (res.status === 401) { location.href = '/login.html'; throw new Error('unauth'); }
@@ -371,6 +410,7 @@ function ensureTerm() {
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon.WebLinksAddon());
   term.open($('#term'));
+  term.attachCustomKeyEventHandler((e) => !handleTerminalCopyShortcut(e));
   // 关掉 iOS 的自动纠正 / 联想(QuickType)条 —— 打字时它忽隐忽现地改变可视视口
   // 高度,会把终端反复重排、往上跳一大段,用户得手动滑回底部。
   const ta = term.textarea;
