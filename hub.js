@@ -282,13 +282,18 @@ wssAgent.on('connection', (ws, req) => {
 
   ws.isAlive = true; ws.on('pong', markAlive);
   const a = agentState(machineId);
+  const prev = a.ws;
   a.ws = ws; a.online = true;
+  if (prev && prev !== ws && prev.readyState === WebSocket.OPEN) {
+    try { prev.close(4000, 'superseded'); } catch { /* already gone */ }
+  }
   // The agent re-sends each live session's full scrollback right after connecting,
   // so drop any stale cache first to avoid doubling the history on reconnect.
   a.replay.clear();
   console.log(`agent online: ${rec.name} (${machineId})`);
 
   ws.on('message', (raw, isBinary) => {
+    if (a.ws !== ws) return; // ignore frames from a superseded duplicate agent connection
     if (isBinary) {
       const { sid, data } = decodeData(Buffer.from(raw));
       let buf = a.replay.get(sid) || Buffer.alloc(0);
