@@ -60,6 +60,8 @@
   .item .meta { color: var(--txt-dim); font-size: 11px; margin-top: 4px; }
   .item .kill { float: right; color: #f0716e; opacity: .5; transition: opacity .15s; }
   .item .kill:hover { opacity: 1; }
+  .item .ren { float: right; margin-right: 10px; color: var(--txt-dim); opacity: .5; transition: opacity .15s; }
+  .item .ren:hover { opacity: 1; }
 
   /* 玻璃按钮 */
   #side .actions { padding: 12px; border-top: 1px solid rgba(255,255,255,.06); display: flex; gap: 9px; }
@@ -381,10 +383,22 @@ async function loadSessions() {
     const el = document.createElement('div');
     el.className = 'item' + (s.id === current ? ' active' : '');
     el.innerHTML = `<span class="kill" data-id="${s.id}">✕</span>` +
+      `<span class="ren" data-id="${s.id}" title="重命名">✎</span>` +
       `${s.name}<div class="meta">${s.clients} 个连接 · ${s.cols}×${s.rows}${s.exited ? ' · 已退出' : ''}</div>`;
     el.addEventListener('click', (e) => {
-      if (e.target.classList.contains('kill')) return;
+      if (e.target.classList.contains("kill") || e.target.classList.contains("ren")) return;
       openSession(s.id);
+    });
+    el.querySelector(".ren").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const name = prompt("窗口新名字(留空恢复原名):", s.name);
+      if (name == null) return;
+      const res = await api("/api/agents/" + currentMachine + "/sessions/" + s.id, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) return alert("重命名失败:机器可能离线");
+      loadSessions();
     });
     el.querySelector('.kill').addEventListener('click', async (e) => {
       e.stopPropagation();

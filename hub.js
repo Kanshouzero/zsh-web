@@ -16,6 +16,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const SCROLLBACK = Number(process.env.SCROLLBACK) || 200_000; // replay bytes cached per session
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const MACHINES_FILE = path.join(DATA_DIR, 'machines.json');
+const ALIASES_FILE = path.join(DATA_DIR, 'aliases.json');
 const PAIR_TTL_MS = Number(process.env.PAIR_TTL_MS) || 5 * 60 * 1000;
 
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* best-effort */ }
@@ -33,6 +34,35 @@ function saveMachines() {
   try { fs.writeFileSync(tmp, JSON.stringify(machines, null, 2)); fs.renameSync(tmp, MACHINES_FILE); } catch { /* best-effort */ }
 }
 const machines = loadMachines();
+
+// --- session aliases (display-only rename, persisted on the hub) -------------
+// The real session name lives on the agent; here we just overlay a per-machine
+// alias keyed by session id, so a browser can rename a window without touching
+// the agent. Shape: { [machineId]: { [sid]: alias } }.
+function loadAliases() {
+  try { return JSON.parse(fs.readFileSync(ALIASES_FILE, 'utf8')); } catch { return {}; }
+}
+function saveAliases() {
+  const tmp = `${ALIASES_FILE}.tmp`;
+  try { fs.writeFileSync(tmp, JSON.stringify(aliases, null, 2)); fs.renameSync(tmp, ALIASES_FILE); } catch { /* best-effort */ }
+}
+const aliases = loadAliases();
+function setAlias(mid, sid, name) {
+  const v = String(name || '').trim();
+  if (!v) { if (aliases[mid]) { delete aliases[mid][sid]; if (!Object.keys(aliases[mid]).length) delete aliases[mid]; } }
+  else { (aliases[mid] || (aliases[mid] = {}))[sid] = v; }
+  saveAliases();
+}
+// Drop aliases for sessions that no longer exist (called when an agent reports
+// its live session list), so the file doesn't grow unbounded.
+function pruneAliases(mid, liveSids) {
+  const map = aliases[mid];
+  if (!map) return;
+  let changed = false;
+  for (const sid of Object.keys(map)) if (!liveSids.has(sid)) { delete map[sid]; changed = true; }
+  if (!Object.keys(map).length) delete aliases[mid];
+  if (changed) saveAliases();
+}
 
 // --- live agent connections + relay state ----------------------------------
 // machineId -> { ws|null, online, sessions:[info], replay:Map<sid,Buffer>, pending:Map<reqId,{resolve,timer}> }
@@ -169,7 +199,14 @@ app.delete('/api/agents/:id', auth.requireAuth, (req, res) => {
 app.get('/api/agents/:id/sessions', auth.requireAuth, (req, res) => {
   const a = agents.get(req.params.id);
   if (!a || !a.online) return res.status(503).json({ error: 'machine offline', sessions: [] });
-  res.json({ sessions: a.sessions });
+  const map = aliases[req.params.id] || {};
+  // Overlay the hub-side alias onto the display name; keep the original too.
+  res.json({ sessions: a.sessions.map((s) => map[s.id] ? { ...s, name: map[s.id], origName: s.name } : s) });
+});
+// Rename a session (display-only alias). Empty name clears it back to the original.
+app.patch('/api/agents/:id/sessions/:sid', auth.requireAuth, (req, res) => {
+  setAlias(req.params.id, req.params.sid, req.body && req.body.name);
+  res.json({ ok: true });
 });
 app.post('/api/agents/:id/sessions', auth.requireAuth, (req, res) => {
   const a = agents.get(req.params.id);
@@ -183,6 +220,7 @@ app.delete('/api/agents/:id/sessions/:sid', auth.requireAuth, (req, res) => {
   const a = agents.get(req.params.id);
   if (!a || !a.ws) return res.status(503).json({ ok: false });
   a.ws.send(JSON.stringify({ t: 'kill', sid: req.params.sid }));
+  setAlias(req.params.id, req.params.sid, ''); // drop the alias along with the session
   res.json({ ok: true });
 });
 
@@ -261,7 +299,7 @@ wssAgent.on('connection', (ws, req) => {
       return;
     }
     let m; try { m = JSON.parse(raw.toString('utf8')); } catch { return; }
-    if (m.t === 'sessions') { a.sessions = m.sessions || []; return; }
+    if (m.t === 'sessions') { a.sessions = m.sessions || []; pruneAliases(machineId, new Set(a.sessions.map((s) => s.id))); return; }
     if (m.t === 'created') {
       const p = a.pending.get(m.reqId);
       if (p) { clearTimeout(p.timer); a.pending.delete(m.reqId); p.resolve(m.session); }
