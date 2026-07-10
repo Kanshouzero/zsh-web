@@ -291,8 +291,7 @@ let term, fit, ws, current = null, currentMachine = null, reconnectTimer;
 
 function isCopyShortcut(e) {
   const isC = e.code === 'KeyC' || String(e.key).toLowerCase() === 'c';
-  if (!isC || e.altKey) return false;
-  return (e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey);
+  return isC && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey;
 }
 
 function fallbackCopy(text) {
@@ -328,6 +327,13 @@ function handleTerminalCopyShortcut(e) {
 document.addEventListener('keydown', (e) => {
   if (!term || !current || !$("#term").contains(document.activeElement)) return;
   handleTerminalCopyShortcut(e);
+}, true);
+
+document.addEventListener('copy', (e) => {
+  if (!term || !current || !term.hasSelection() || !$("#term").contains(document.activeElement)) return;
+  e.clipboardData.setData('text/plain', term.getSelection());
+  e.preventDefault();
+  term.focus();
 }, true);
 
 async function api(path, opts) {
