@@ -290,7 +290,9 @@ $('#keybar').addEventListener('pointerdown', (e) => {
 let term, fit, ws, current = null, currentMachine = null, reconnectTimer;
 
 function isCopyShortcut(e) {
-  return e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === 'KeyC' || e.key.toLowerCase() === 'c');
+  const isC = e.code === 'KeyC' || String(e.key).toLowerCase() === 'c';
+  if (!isC || e.altKey) return false;
+  return (e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey);
 }
 
 function fallbackCopy(text) {
@@ -319,7 +321,7 @@ function handleTerminalCopyShortcut(e) {
   e.preventDefault();
   e.stopPropagation();
   if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-  copyTermSelection();
+  if (e.type === 'keydown') copyTermSelection();
   return true;
 }
 
