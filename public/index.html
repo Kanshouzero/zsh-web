@@ -16,6 +16,8 @@
     --txt: #e7e9ee;
     --txt-dim: #8b909b;
     --radius: 13px;
+    --mobile-keybar-h: 46px;
+    --terminal-bottom-slack: 40px;
   }
   * { -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; height: 100dvh; color: var(--txt);
@@ -79,7 +81,7 @@
 
   /* 终端区 */
   #main { flex: 1; position: relative; background: rgba(8,10,14,.55); }
-  #term { position: absolute; inset: 0; padding: 12px; box-sizing: border-box; }
+  #term { position: absolute; inset: 12px; padding: 0; box-sizing: border-box; }
   #empty { position: absolute; inset: 0; display: grid; place-items: center; color: #565c66; font-size: 13px; }
 
   /* 玻璃状态胶囊 */
@@ -151,7 +153,7 @@
 
   /* 移动端快捷键条:贴在终端底部(键盘上方),给手机软键盘补上缺失的键 */
   #keybar { display: none; position: absolute; left: 0; right: 0; bottom: 0; z-index: 7;
-    height: 46px; align-items: center; gap: 7px; padding: 0 9px; box-sizing: border-box;
+    height: var(--mobile-keybar-h); align-items: center; gap: 7px; padding: 0 9px; box-sizing: border-box;
     overflow-x: auto; -webkit-overflow-scrolling: touch;
     background: rgba(14,16,22,.97);
     -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%);
@@ -163,10 +165,18 @@
 
   @media (max-width: 760px) {
     /* 终端打开时露出快捷键条,并给它让出底部空间(#app 的高度由 JS 跟随可视视口) */
-    body.term-open #keybar { display: flex; }
+    body.term-open #keybar {
+      display: flex;
+      height: calc(var(--mobile-keybar-h) + env(safe-area-inset-bottom, 0px));
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
     /* 终端打开:让出键盘条空间;并把顶部那 52px(给汉堡留的)内边距收回来当终端行用,
-       汉堡改为浮在左上角 —— 多腾出约 2-3 行,确保 claude 底部 auto 模式行能露出。 */
-    body.term-open #term { bottom: 58px; padding-top: 12px; }
+       汉堡改为浮在左上角 —— 多腾出约 2-3 行。底部多预留一行,避免 iOS 键盘/
+       安全区和 xterm 行高取整误差把最后一行压到快捷键条下面。 */
+    body.term-open #term {
+      top: 12px;
+      bottom: calc(var(--mobile-keybar-h) + env(safe-area-inset-bottom, 0px) + var(--terminal-bottom-slack));
+    }
     /* 侧栏改抽屉:默认滑出屏外,.open 时滑入 */
     #side { position: fixed; left: 0; top: 0; bottom: 0; z-index: 30;
       width: 84vw; max-width: 320px; flex-basis: auto;
@@ -176,7 +186,7 @@
     #scrim.show { display: block; }
     #menuBtn { display: block; }
     /* 给汉堡让位:空提示和终端内边距上移一点 */
-    #term { padding-top: 52px; }
+    #term { top: 52px; }
     #empty { padding-top: 52px; }
     /* 用量区在小屏少占点高度 */
     #machines { max-height: 30%; }
@@ -219,7 +229,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-canvas@0.7.0/lib/addon-canvas.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 // Build stamp: replaced by deploy when available; otherwise fall back to this file's timestamp.
@@ -259,7 +268,7 @@ function settleFit() {
     const h = vv ? vv.height : 0;
     if (Math.abs(h - last) < 2) stable++; else { stable = 0; last = h; }
     if (stable >= 3) { // 连续 ~240ms 没变 = 键盘停稳
-      if (term && current && fit && $('#term').clientHeight > 0) { fit.fit(); sendResize(); term.scrollToBottom(); }
+      if (fitTerminal()) term.scrollToBottom();
       return;
     }
     settleTimer = setTimeout(tick, 80);
@@ -268,13 +277,13 @@ function settleFit() {
 }
 if (vv) {
   vv.addEventListener('resize', () => { applyViewport(); settleFit(); });
-  vv.addEventListener('scroll', applyViewport); // 纯滚动只挪位,不重排,免抖动
+  vv.addEventListener('scroll', () => { applyViewport(); settleFit(); }); // iOS 有时只改 offset,也要重算终端行数
   applyViewport();
 }
 
 // --- 移动端快捷键条 ---------------------------------------------------------
 async function doPaste() {
-  try { const t = await navigator.clipboard.readText(); if (t && term) term.paste(t); }
+  try { pasteText(await navigator.clipboard.readText()); }
   catch { /* 剪贴板不可用(需 HTTPS / 用户授权) */ }
 }
 $('#keybar').addEventListener('pointerdown', (e) => {
@@ -288,6 +297,68 @@ $('#keybar').addEventListener('pointerdown', (e) => {
 });
 
 let term, fit, ws, current = null, currentMachine = null, reconnectTimer;
+
+function pasteText(text) {
+  if (!text || !term) return false;
+  term.paste(text);
+  term.focus();
+  return true;
+}
+
+function isCopyShortcut(e) {
+  const isC = e.code === 'KeyC' || String(e.key).toLowerCase() === 'c';
+  return isC && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey;
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } finally { ta.remove(); }
+}
+
+async function copyTermSelection() {
+  if (!term || !term.hasSelection()) return false;
+  const text = term.getSelection();
+  try { await navigator.clipboard.writeText(text); }
+  catch { fallbackCopy(text); }
+  term.focus();
+  return true;
+}
+
+function handleTerminalCopyShortcut(e) {
+  if (!isCopyShortcut(e) || !term || !current) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+  if (e.type === 'keydown') copyTermSelection();
+  return true;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!term || !current || !$('#term').contains(document.activeElement)) return;
+  handleTerminalCopyShortcut(e);
+}, true);
+
+document.addEventListener('copy', (e) => {
+  if (!term || !current || !term.hasSelection() || !$('#term').contains(document.activeElement)) return;
+  e.clipboardData.setData('text/plain', term.getSelection());
+  e.preventDefault();
+  term.focus();
+}, true);
+
+document.addEventListener('paste', (e) => {
+  if (!term || !current || !$('#term').contains(document.activeElement)) return;
+  const text = e.clipboardData && e.clipboardData.getData('text/plain');
+  if (!pasteText(text)) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -347,18 +418,18 @@ async function loadSessions() {
       `<span class="ren" data-id="${s.id}" title="重命名">✎</span>` +
       `${s.name}<div class="meta">${s.clients} 个连接 · ${s.cols}×${s.rows}${s.exited ? ' · 已退出' : ''}</div>`;
     el.addEventListener('click', (e) => {
-      if (e.target.classList.contains("kill") || e.target.classList.contains("ren")) return;
+      if (e.target.classList.contains('kill') || e.target.classList.contains('ren')) return;
       openSession(s.id);
     });
-    el.querySelector(".ren").addEventListener("click", async (e) => {
+    el.querySelector('.ren').addEventListener('click', async (e) => {
       e.stopPropagation();
-      const name = prompt("窗口新名字(留空恢复原名):", s.name);
+      const name = prompt('窗口新名字(留空恢复原名):', s.name);
       if (name == null) return;
-      const res = await api("/api/agents/" + currentMachine + "/sessions/" + s.id, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
+      const res = await api('/api/agents/' + currentMachine + '/sessions/' + s.id, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim() }),
       });
-      if (!res.ok) return alert("重命名失败:机器可能离线");
+      if (!res.ok) return alert('重命名失败:机器可能离线');
       loadSessions();
     });
     el.querySelector('.kill').addEventListener('click', async (e) => {
@@ -384,7 +455,15 @@ function ensureTerm() {
   fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon.WebLinksAddon());
+  // 吞掉前景/背景色查询(OSC 10/11/12 的 "?" 上报)。有的 zsh 提示符/工具会查询终端配色,
+  // xterm 默认会回 "rgb:1e1e/1e1e/1e1e" 之类的应答 —— 这些应答被当成输入回显到 shell
+  // 提示符上,就是那串 "11;rgb:1e1e/1e1e/1e1e" 乱码;重连重放缓冲时还会一次性触发一大片。
+  // 我们用固定深色主题,不需要上报。只吞查询("?"),设置颜色仍放行。
+  [10, 11, 12].forEach((code) => {
+    term.parser.registerOscHandler(code, (data) => String(data).startsWith('?'));
+  });
   term.open($('#term'));
+  term.attachCustomKeyEventHandler((e) => !handleTerminalCopyShortcut(e));
   // 关掉 iOS 的自动纠正 / 联想(QuickType)条 —— 打字时它忽隐忽现地改变可视视口
   // 高度,会把终端反复重排、往上跳一大段,用户得手动滑回底部。
   const ta = term.textarea;
@@ -394,13 +473,8 @@ function ensureTerm() {
     ta.setAttribute('autocomplete', 'off');
     ta.setAttribute('spellcheck', 'false');
   }
-  // Canvas renderer: much faster than the DOM renderer for a large scrollback (so
-  // typing stays smooth), and — unlike the WebGL renderer — it keeps the scroll
-  // viewport in sync after a session switch. WebGL left scrolling dead until a
-  // keystroke forced a repaint. Falls back to the DOM renderer if it can't load.
-  try {
-    term.loadAddon(new CanvasAddon.CanvasAddon());
-  } catch (e) { /* no Canvas addon → stay on the DOM renderer */ }
+  // Keep xterm's DOM renderer. Canvas can interfere with native selection and
+  // repeated Cmd+C in some browsers.
   term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(d)); });
   // Re-fit whenever the terminal pane actually changes size (sidebar toggle, split,
   // rotate, window resize) — more reliable than the window 'resize' event.
@@ -410,7 +484,7 @@ function ensureTerm() {
     pendingFit = true;
     requestAnimationFrame(() => {
       pendingFit = false;
-      if (current && $('#term').clientHeight > 0) { fit.fit(); sendResize(); }
+      fitTerminal();
     });
   });
   ro.observe($('#term'));
@@ -461,6 +535,19 @@ function sendResize() {
   }
 }
 
+function fitTerminal() {
+  if (!term || !fit || !current || $('#term').clientHeight <= 0) return false;
+  fit.fit();
+  const rowGuard = isMobile() && document.body.classList.contains('term-open') ? 2 : 1;
+  if (term.rows > rowGuard + 2) {
+    // Keep a real grid row clear of browser/renderer clipping. This matters on
+    // desktop too: xterm can otherwise fit one row too many at the bottom edge.
+    term.resize(term.cols, term.rows - rowGuard);
+  }
+  sendResize();
+  return true;
+}
+
 function closeTerm() {
   clearTimeout(reconnectTimer);
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
@@ -486,7 +573,7 @@ function openSession(id) {
   // The pane just switched to display:block, so its size isn't settled yet. Fit on
   // the next frame; fitting now reads a wrong size → rows/cols off (bottom content
   // clipped) and the viewport mis-sized (scroll/click dead until you type).
-  requestAnimationFrame(() => { fit.fit(); term.focus(); });
+  requestAnimationFrame(() => { fitTerminal(); term.focus(); });
   if (isMobile()) closeDrawer(); // 选了会话就收起抽屉,露出终端
   loadSessions();
   connect();
@@ -496,7 +583,7 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?agent=${currentMachine}&session=${current}`);
   ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { setStatus('● 已同步', 'ok'); fit.fit(); sendResize(); term.focus(); };
+  ws.onopen = () => { setStatus('● 已同步', 'ok'); fitTerminal(); term.focus(); };
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
       try {
