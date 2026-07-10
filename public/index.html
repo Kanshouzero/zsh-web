@@ -274,7 +274,7 @@ if (vv) {
 
 // --- 移动端快捷键条 ---------------------------------------------------------
 async function doPaste() {
-  try { const t = await navigator.clipboard.readText(); if (t && term) term.paste(t); }
+  try { pasteText(await navigator.clipboard.readText()); }
   catch { /* 剪贴板不可用(需 HTTPS / 用户授权) */ }
 }
 $('#keybar').addEventListener('pointerdown', (e) => {
@@ -288,6 +288,13 @@ $('#keybar').addEventListener('pointerdown', (e) => {
 });
 
 let term, fit, ws, current = null, currentMachine = null, reconnectTimer;
+
+function pasteText(text) {
+  if (!text || !term) return false;
+  term.paste(text);
+  term.focus();
+  return true;
+}
 
 function isCopyShortcut(e) {
   const isC = e.code === 'KeyC' || String(e.key).toLowerCase() === 'c';
@@ -334,6 +341,14 @@ document.addEventListener('copy', (e) => {
   e.clipboardData.setData('text/plain', term.getSelection());
   e.preventDefault();
   term.focus();
+}, true);
+
+document.addEventListener('paste', (e) => {
+  if (!term || !current || !$("#term").contains(document.activeElement)) return;
+  const text = e.clipboardData && e.clipboardData.getData('text/plain');
+  if (!pasteText(text)) return;
+  e.preventDefault();
+  e.stopPropagation();
 }, true);
 
 async function api(path, opts) {
